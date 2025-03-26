@@ -41,18 +41,33 @@ Take math reasoning as example, we need to preprocess the data under the GSM8K-s
 
 ### Train
 
-Here we use GSM8K as an example, the LLM is Llama-3.1-8B and the assistant model is Llama-3.2-1B:
+Here we use GSM8K as an example, for Llama, we have:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python train.py \
     --large_model_id meta-llama/Llama-3.1-8B-Instruct \
     --small_model_id meta-llama/Llama-3.2-1B-Instruct \
-    -output_name [Output Name] \
+    --output_name [Output Name] \
     --batch_size 4 \
     --task_name gsm8k \
     --num_thought_tokens 4 \
     --n_epochs 10 \
 ```
+
+For Qwen, we have:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --large_model_id Qwen/Qwen2.5-7B-Instruct \
+    --small_model_id Qwen/Qwen2.5-1.5B-Instruct \
+    --output_name [Output Name] \
+    --batch_size 4 \
+    --task_name gsm8k \
+    --num_thought_tokens 4 \
+    --n_epochs 10 \
+```
+
+The ```output_name``` argument is used to differentiate between various experimental settings.
 
 **Notice**: The training script is under the single-GPU style, we do not adopt our code to multi-GPU training.
 
