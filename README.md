@@ -4,9 +4,7 @@
 
 <p align="center">
 <a href="https://arxiv.org/abs/2502.12134">
-  <img src="https://img.shields.io/badge/Arxiv-2502.12134-orange.svg"></a> 
-<a href="https://opensource.org/licenses/Apache-2.0">
-  <img src="https://img.shields.io/badge/License-Apache_2.0-green.svg"></a>
+  <img src="https://img.shields.io/badge/Arxiv-2502.12134-orange.svg"></a>
 <br>
 <b>Authors:</b>
 <a href="https://xuyige.github.io">Yige Xu</a>,
