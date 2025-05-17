@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from transformers.cache_utils import Cache
+from safetensors.torch import save_model
 from peft import PeftModel, LoraConfig
 from fastNLP import logger
 
@@ -25,40 +26,42 @@ class EfficientSoftCoTFromSmallModel(nn.Module):
         **kwargs,
     ):
         super().__init__()
+        
+        print(f"small_language_model_id: {small_language_model_id}")
+        print(f"large_language_model_id: {large_language_model_id}")
+        
         self.assistant_model = AutoModelForCausalLM.from_pretrained(
             small_language_model_id,
             torch_dtype=torch.bfloat16,
-            device_map='auto',
-            _fast_init=False,
-            token='your-huggingface-token',
+            # device_map="auto",
+            # _fast_init=False,
         )
         self.base_model = AutoModelForCausalLM.from_pretrained(
             large_language_model_id,
             torch_dtype=torch.bfloat16,
-            device_map='auto',
-            _fast_init=False,
-            token='your-huggingface-token',
+            # device_map="auto",
+            # _fast_init=False,
         )
         self.config = AutoConfig.from_pretrained(
             large_language_model_id,
-            token='your-huggingface-token',
         )
 
         self.base_tokenizer = AutoTokenizer.from_pretrained(
             large_language_model_id,
-            token='your-huggingface-token',
         )
         self.assistant_tokenizer = AutoTokenizer.from_pretrained(
             small_language_model_id,
-            token='your-huggingface-token',
         )
 
         self.num_thought_tokens = num_thought_tokens
         self.tune_assistant_model = tune_assistant_model
         self.tune_base_model = tune_base_model
 
-        self.projection = nn.Linear(self.assistant_model.config.hidden_size, self.base_model.config.hidden_size,
-                                    dtype=torch.bfloat16)
+        self.projection = nn.Linear(
+            self.assistant_model.config.hidden_size,
+            self.base_model.config.hidden_size,
+            dtype=torch.bfloat16
+        )
 
         for n, p in self.assistant_model.named_parameters():
             p.requires_grad = tune_assistant_model
@@ -112,12 +115,14 @@ class EfficientSoftCoTFromSmallModel(nn.Module):
             save_detail.append('Base Model')
 
         if self.tune_assistant_model:
-            assistant_model_file = os.path.join(save_model_dir_root, 'assistant_model.bin')
+            assistant_model_file = os.path.join(save_model_dir_root, "assistant_model.safetensors")
             logger.info(f'Saving assistant model to `{assistant_model_file}`')
-            torch.save(self.assistant_model.state_dict(), assistant_model_file)
+            # torch.save(self.assistant_model.state_dict(), assistant_model_file)
+            save_model(self.assistant_model, assistant_model_file)
             save_detail.append('Assistant Model')
 
-        torch.save(self.projection.state_dict(), os.path.join(save_model_dir_root, 'projection.bin'))
+        # torch.save(self.projection.state_dict(), os.path.join(save_model_dir_root, 'projection.bin'))
+        save_model(self.projection, os.path.join(save_model_dir_root, 'projection.safetensors'))
         save_detail.append('Projection Module')
         logger.info(f'Saving parameters of projection module, includes: {[k for k, v in self.projection.state_dict().items()]}')
 
@@ -236,6 +241,3 @@ class EfficientSoftCoTFromSmallModel(nn.Module):
                 logger.info(f'Instance {b + 1}/{batch_size} - Embeddings to: <|start|>{raw_base_inputs}<|end|>')
 
         return inputs_embeds
-
-
-

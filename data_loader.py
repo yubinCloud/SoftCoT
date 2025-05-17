@@ -8,6 +8,8 @@ import pandas as pd
 from fastNLP import DataSet, Instance
 from fastNLP.io import Loader, DataBundle
 
+GSM8K_DATA_PATH = '/home/dataset-assist-0/users/yubin/projectspace/CeL/SoftCoT/data/gsm8k'
+
 
 class GSM8KLoader(Loader):
 
@@ -23,7 +25,7 @@ class GSM8KLoader(Loader):
 
         return ds
 
-    def load(self, paths: Union[str, Dict[str, str]] = '/path/to/data/dir') -> DataBundle:
+    def load(self, paths: Union[str, Dict[str, str]] = GSM8K_DATA_PATH) -> DataBundle:
         if isinstance(paths, str):
             paths = {
                 'train': os.path.join(paths, 'train_socratic.jsonl'),

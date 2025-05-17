@@ -2,17 +2,31 @@ import argparse
 from tqdm import tqdm
 
 import torch
+from torch.utils.data import DataLoader
 import pandas as pd
 
 from datasets import Dataset
 from transformers import AutoTokenizer
-from transformers import TrainingArguments, Trainer
+from transformers import TrainingArguments, Trainer, TrainerCallback
 from fastNLP import logger
+from accelerate import Accelerator
+from safetensors.torch import save_model
 
 
 from data_loader import GSM8KLoader, StrategyQALoader, AugASDivLoader, AQuALoader
 from llm_model import EfficientSoftCoTFromSmallModel
 from utils import pre_process_strategy_qa, pre_process_gsm8k, pre_process_aqua, CustomDataCollator
+
+
+
+###################
+# is-dev?
+###################
+is_dev = True
+
+
+# 初始化Accelerate
+accelerator = Accelerator()
 
 
 args = argparse.ArgumentParser()
@@ -58,8 +72,17 @@ logger.info(f'Save Model Dir: {save_model_dir}')
 model_dtype = torch.bfloat16
 param_dtype = str(model_dtype)
 
-base_tokenizer = AutoTokenizer.from_pretrained(large_model_id, token='your-huggingface-token')
-assistant_tokenizer = AutoTokenizer.from_pretrained(small_model_id, token='your-huggingface-token')
+
+########################################
+# 创建 model
+########################################
+
+# 读取本地 model 路径
+large_model_path = f"/home/dataset-assist-0/models/{large_model_name}"
+small_model_path = f"/home/dataset-assist-0/models/{small_model_name}"
+
+base_tokenizer = AutoTokenizer.from_pretrained(large_model_path)
+assistant_tokenizer = AutoTokenizer.from_pretrained(small_model_path)
 
 if 'Llama' in large_model_id:
     base_special_token = ['<|end_of_text|>', '<|reserved_special_token_0|>', '<|reserved_special_token_1|>']
@@ -69,6 +92,7 @@ elif 'Qwen' in large_model_id:
     base_backbone = 'qwen'
 else:
     raise NotImplementedError
+
 if 'Llama' in small_model_id:
     assistant_special_token = ['<|end_of_text|>', '<|reserved_special_token_0|>', '<|reserved_special_token_1|>']
     assistant_backbone = 'llama'
@@ -79,14 +103,19 @@ else:
     raise NotImplementedError
 
 model = EfficientSoftCoTFromSmallModel(
-    small_model_id,
-    large_model_id,
+    small_model_path,
+    large_model_path,
     num_thought_tokens,
     tune_base_model=tune_base_model,
     tune_assistant_model=tune_assistant_model,
 )
 
 logger.info(f'Successfully Init Model `{model.__class__.__name__}`')
+
+
+########################################
+# 计算参数量
+########################################
 
 trainable_param = 0
 total_param = 0
@@ -95,6 +124,11 @@ for n, p in model.named_parameters():
         trainable_param += p.view(-1).size(0)
     total_param += p.view(-1).size(0)
 logger.info(f'Trainable Parameters: {trainable_param}; Total Parameters: {total_param}')
+
+
+########################################
+# 准备 dataset
+########################################
 
 if task_name in ['gsm8k']:
     db = GSM8KLoader().load()
@@ -144,13 +178,21 @@ for ins in tqdm(eval_dataset, desc='Preprocess Testing Set'):
     )
 
 train_data = Dataset.from_pandas(pd.DataFrame(train_rows))
+if is_dev:
+    train_data = train_data.select(range(100))
 eval_data = Dataset.from_pandas(pd.DataFrame(eval_rows))
 
+
+########################################
+# 创建 trainer
+########################################
 training_args = TrainingArguments(
     output_dir=output_dir,
     overwrite_output_dir=True,
-    evaluation_strategy='epoch',
-    save_strategy='epoch',
+    eval_strategy='epoch',
+    save_safetensors=True,
+    # save_strategy='epoch',
+    save_strategy='no',
     learning_rate=2e-5,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
@@ -159,7 +201,7 @@ training_args = TrainingArguments(
     bf16=True,
     logging_dir=log_dir,
     logging_steps=500,
-    remove_unused_columns=True,
+    remove_unused_columns=True
 )
 
 trainer = Trainer(
@@ -167,11 +209,19 @@ trainer = Trainer(
     args=training_args,
     train_dataset=train_data,
     eval_dataset=eval_data,
-    data_collator=CustomDataCollator(),
+    data_collator=CustomDataCollator()
 )
+
+
+########################################
+# 开 train
+########################################
 trainer.train()
 
-model.save_pretrained(save_model_dir)
-logger.info(f'Finish training, save model to dir `{save_model_dir}`')
 
-
+########################################
+# 保存结果
+########################################
+if accelerator.is_main_process:
+    model.save_pretrained(save_model_dir)
+    logger.info(f'Finish training, save model to dir `{save_model_dir}`')

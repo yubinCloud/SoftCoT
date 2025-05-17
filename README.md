@@ -59,11 +59,20 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
     --large_model_id Qwen/Qwen2.5-7B-Instruct \
     --small_model_id Qwen/Qwen2.5-1.5B-Instruct \
     --output_name [Output Name] \
-    --batch_size 4 \
+    --batch_size 1 \
     --task_name gsm8k \
     --num_thought_tokens 4 \
     --n_epochs 10 \
 ```
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch train.py \
+    --large_model_id Qwen/Qwen2.5-7B-Instruct \
+    --small_model_id Qwen/Qwen2.5-1.5B-Instruct \
+    --output_name test_output \
+    --batch_size 1 \
+    --task_name gsm8k \
+    --num_thought_tokens 4 \
+    --n_epochs 2
 
 The ```output_name``` argument is used to differentiate between various experimental settings.
 
