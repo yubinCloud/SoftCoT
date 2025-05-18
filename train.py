@@ -5,9 +5,9 @@ import torch
 from torch.utils.data import DataLoader
 import pandas as pd
 
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
 from transformers import AutoTokenizer
-from transformers import TrainingArguments, Trainer, TrainerCallback
+from transformers import TrainingArguments, TrainerCallback
 from fastNLP import logger
 from accelerate import Accelerator
 from safetensors.torch import save_model
@@ -16,7 +16,7 @@ from safetensors.torch import save_model
 from data_loader import GSM8KLoader, StrategyQALoader, AugASDivLoader, AQuALoader
 from llm_model import EfficientSoftCoTFromSmallModel
 from utils import pre_process_strategy_qa, pre_process_gsm8k, pre_process_aqua, CustomDataCollator
-
+from trainers.soft_cot import SoftCoTTrainer
 
 
 ###################
@@ -130,57 +130,68 @@ logger.info(f'Trainable Parameters: {trainable_param}; Total Parameters: {total_
 # 准备 dataset
 ########################################
 
-if task_name in ['gsm8k']:
-    db = GSM8KLoader().load()
-    preprocess_method = pre_process_gsm8k
-elif task_name in ['strategyqa']:
-    db = StrategyQALoader().load()
-    preprocess_method = pre_process_strategy_qa
-elif task_name in ['asdiv-aug']:
-    db = AugASDivLoader().load()
-    preprocess_method = pre_process_gsm8k
-elif task_name in ['aqua']:
-    db = AQuALoader().load()
-    preprocess_method = pre_process_aqua
-else:
-    raise NotImplementedError
+# if task_name in ['gsm8k']:
+#     db = GSM8KLoader().load()
+#     preprocess_method = pre_process_gsm8k
+# elif task_name in ['strategyqa']:
+#     db = StrategyQALoader().load()
+#     preprocess_method = pre_process_strategy_qa
+# elif task_name in ['asdiv-aug']:
+#     db = AugASDivLoader().load()
+#     preprocess_method = pre_process_gsm8k
+# elif task_name in ['aqua']:
+#     db = AQuALoader().load()
+#     preprocess_method = pre_process_aqua
+# else:
+#     raise NotImplementedError
 
-train_dataset = db.get_dataset('train')
-eval_dataset = db.get_dataset('dev')
+# train_dataset = db.get_dataset('train')
+# eval_dataset = db.get_dataset('dev')
 
-if k_shot > 0:
-    train_dataset = train_dataset[: k_shot]
+# if k_shot > 0:
+#     train_dataset = train_dataset[: k_shot]
 
-train_rows = []
-for ins in tqdm(train_dataset, desc='Preprocess Training Set'):
-    train_rows.append(
-        preprocess_method(
-            ins, base_tokenizer, assistant_tokenizer, num_thought_tokens,
-            add_bot_eot=True, split='train',
-            base_special_token=base_special_token,
-            assistant_special_token=assistant_special_token,
-            base_backbone=base_backbone,
-            assistant_backbone=assistant_backbone,
-        )
-    )
+# train_rows = []
+# for ins in tqdm(train_dataset, desc='Preprocess Training Set'):
+#     train_rows.append(
+#         preprocess_method(
+#             ins, base_tokenizer, assistant_tokenizer, num_thought_tokens,
+#             add_bot_eot=True, split='train',
+#             base_special_token=base_special_token,
+#             assistant_special_token=assistant_special_token,
+#             base_backbone=base_backbone,
+#             assistant_backbone=assistant_backbone,
+#         )
+#     )
 
-eval_rows = []
-for ins in tqdm(eval_dataset, desc='Preprocess Testing Set'):
-    eval_rows.append(
-        preprocess_method(
-            ins, base_tokenizer, assistant_tokenizer, num_thought_tokens,
-            add_bot_eot=True, split='dev',
-            base_special_token=base_special_token,
-            assistant_special_token=assistant_special_token,
-            base_backbone=base_backbone,
-            assistant_backbone=assistant_backbone,
-        )
-    )
+# eval_rows = []
+# for ins in tqdm(eval_dataset, desc='Preprocess Testing Set'):
+#     eval_rows.append(
+#         preprocess_method(
+#             ins, base_tokenizer, assistant_tokenizer, num_thought_tokens,
+#             add_bot_eot=True, split='dev',
+#             base_special_token=base_special_token,
+#             assistant_special_token=assistant_special_token,
+#             base_backbone=base_backbone,
+#             assistant_backbone=assistant_backbone,
+#         )
+#     )
 
-train_data = Dataset.from_pandas(pd.DataFrame(train_rows))
-if is_dev:
-    train_data = train_data.select(range(100))
-eval_data = Dataset.from_pandas(pd.DataFrame(eval_rows))
+# train_data = Dataset.from_pandas(pd.DataFrame(train_rows))
+# if is_dev:
+#     train_data = train_data.select(range(100))
+# eval_data = Dataset.from_pandas(pd.DataFrame(eval_rows))
+
+
+# dataset_dict = DatasetDict({
+#     'train': train_data,
+#     'eval': eval_data,
+# })
+# if accelerator.is_main_process:
+#     dataset_dict.save_to_disk("./processed_data/gsm8k")
+dataset_dict = DatasetDict.load_from_disk("./processed_data/gsm8k")
+train_data = dataset_dict['train']
+eval_data = dataset_dict['eval']
 
 
 ########################################
@@ -191,8 +202,8 @@ training_args = TrainingArguments(
     overwrite_output_dir=True,
     eval_strategy='epoch',
     save_safetensors=True,
-    # save_strategy='epoch',
-    save_strategy='no',
+    save_strategy='steps',
+    # save_strategy='no',
     learning_rate=2e-5,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
@@ -204,7 +215,7 @@ training_args = TrainingArguments(
     remove_unused_columns=True
 )
 
-trainer = Trainer(
+trainer = SoftCoTTrainer(
     model=model,
     args=training_args,
     train_dataset=train_data,
@@ -222,6 +233,7 @@ trainer.train()
 ########################################
 # 保存结果
 ########################################
+accelerator.wait_for_everyone()
 if accelerator.is_main_process:
     model.save_pretrained(save_model_dir)
     logger.info(f'Finish training, save model to dir `{save_model_dir}`')
